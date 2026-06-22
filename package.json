@@ -1,0 +1,177 @@
+{
+  "name": "@alfred-plugin/openrouter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@alfred/sdk": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  },
+  "alfred": {
+    "id": "openrouter",
+    "displayName": "OpenRouter",
+    "description": "Unified gateway to 300+ LLMs (Anthropic, OpenAI, Google, Meta, Mistral, DeepSeek, Qwen, ...) via OpenRouter's OpenAI-compatible API. One API key, pay-per-token, automatic provider routing.",
+    "main": "src/index.ts",
+    "engine": {
+      "protocolVersion": ">=1.0.0"
+    },
+    "contributes": {
+      "providers": [
+        { "id": "openrouter", "displayName": "OpenRouter" }
+      ]
+    },
+    "configSchema": {
+      "apiKey": {
+        "type": "string",
+        "label": "API key",
+        "description": "Your OpenRouter API key. Get one at https://openrouter.ai/keys.",
+        "secret": true,
+        "required": true,
+        "group": "Connection"
+      },
+      "baseUrl": {
+        "type": "string",
+        "label": "Base URL",
+        "description": "OpenRouter API base URL. Override only if proxying through a custom gateway.",
+        "default": "https://openrouter.ai/api/v1",
+        "group": "Connection"
+      },
+      "appName": {
+        "type": "string",
+        "label": "App name",
+        "description": "Sent as the X-Title header. Shows up in OpenRouter's leaderboard for app attribution.",
+        "default": "Alfred",
+        "group": "Attribution"
+      },
+      "siteUrl": {
+        "type": "string",
+        "label": "Site URL",
+        "description": "Sent as the HTTP-Referer header. Optional but recommended for OpenRouter analytics.",
+        "default": "",
+        "group": "Attribution"
+      },
+      "modelFilter": {
+        "type": "string",
+        "label": "Model filter",
+        "description": "Optional substring filter applied to model ids when listing models. Leave empty to expose all ~400 OpenRouter models, or set e.g. 'anthropic/' to limit the picker to a single vendor.",
+        "default": "",
+        "group": "Catalog"
+      },
+      "freeOnly": {
+        "type": "boolean",
+        "label": "Free models only",
+        "description": "When enabled, only models with a ':free' suffix are exposed. Useful while exploring without burning credits.",
+        "default": false,
+        "group": "Catalog"
+      },
+      "modelsCacheMinutes": {
+        "type": "number",
+        "label": "Models cache (minutes)",
+        "description": "How long the model list returned by GET /models is cached. OpenRouter's catalog is stable; 60min is a safe default.",
+        "default": 60,
+        "min": 0,
+        "max": 1440,
+        "step": 1,
+        "group": "Catalog"
+      }
+    },
+    "modelParamsSchema": {
+      "temperature": {
+        "type": "number",
+        "label": "Temperature",
+        "description": "Sampling temperature (0 = deterministic, 2 = very random).",
+        "min": 0,
+        "max": 2,
+        "step": 0.05,
+        "group": "Sampling"
+      },
+      "top_p": {
+        "type": "number",
+        "label": "Top-P",
+        "description": "Nucleus sampling cutoff (0.9 is a common default).",
+        "min": 0,
+        "max": 1,
+        "step": 0.05,
+        "group": "Sampling"
+      },
+      "top_k": {
+        "type": "number",
+        "label": "Top-K",
+        "description": "Top-K sampling cutoff. Not all upstream providers honor this — OpenRouter forwards it when supported.",
+        "min": 0,
+        "step": 1,
+        "group": "Sampling"
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "label": "Frequency penalty",
+        "description": "Penalize new tokens based on their frequency in the text so far.",
+        "min": -2,
+        "max": 2,
+        "step": 0.05,
+        "group": "Sampling"
+      },
+      "presence_penalty": {
+        "type": "number",
+        "label": "Presence penalty",
+        "description": "Penalize new tokens based on whether they appear in the text so far.",
+        "min": -2,
+        "max": 2,
+        "step": 0.05,
+        "group": "Sampling"
+      },
+      "max_tokens": {
+        "type": "number",
+        "label": "Max output tokens",
+        "description": "Maximum number of tokens to generate. Leave empty to let the upstream provider decide.",
+        "min": 1,
+        "step": 64,
+        "group": "Generation"
+      },
+      "seed": {
+        "type": "number",
+        "label": "Seed",
+        "description": "Deterministic seed. Only honored by upstream providers that support it.",
+        "step": 1,
+        "group": "Sampling"
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "label": "Reasoning effort",
+        "description": "For reasoning models (o3, o4-mini, claude-sonnet-4 thinking, ...). 'low' = faster/cheaper, 'high' = deeper but slower.",
+        "enum": ["", "low", "medium", "high"],
+        "default": "",
+        "group": "Reasoning"
+      },
+      "provider_order": {
+        "type": "array",
+        "label": "Provider order",
+        "description": "Comma-pinning of upstream providers OpenRouter should try first (e.g. 'anthropic', 'together'). Empty = auto-route.",
+        "item": { "type": "string" },
+        "group": "Routing"
+      },
+      "allow_fallbacks": {
+        "type": "boolean",
+        "label": "Allow fallbacks",
+        "description": "Let OpenRouter fall back to other providers if the pinned ones fail. Disable for strict provider control.",
+        "default": true,
+        "group": "Routing"
+      },
+      "transforms_middle_out": {
+        "type": "boolean",
+        "label": "Middle-out compression",
+        "description": "Apply OpenRouter's middle-out compression when the prompt exceeds the model's context. Drops middle messages and keeps system + recent turns.",
+        "default": false,
+        "group": "Routing"
+      }
+    }
+  }
+}
