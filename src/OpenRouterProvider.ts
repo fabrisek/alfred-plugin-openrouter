@@ -8,6 +8,7 @@ import type {
   ModelCapabilities,
   ModelDetails,
   ModelInfo,
+  ModelPricing,
   ToolCall,
   ToolSchema,
 } from '@alfred/sdk';
@@ -37,6 +38,7 @@ export type OpenRouterProviderOptions = {
 type OpenRouterModelEntry = {
   id: string;
   name?: string;
+  description?: string;
   context_length?: number;
   architecture?: {
     modality?: string;
@@ -162,6 +164,8 @@ export class OpenRouterProvider implements LLMProvider {
       displayName: e.name ?? e.id,
       contextWindow: e.top_provider?.context_length ?? e.context_length,
       capabilities: deriveCapabilities(e),
+      description: e.description?.trim() || undefined,
+      pricing: derivePricing(e.pricing),
     }));
     models.sort((a, b) => a.id.localeCompare(b.id));
     this.cache = { fetchedAt: Date.now(), models };
@@ -566,6 +570,27 @@ function computeUsage(u: OpenAIUsage | undefined): ChatResponse['usage'] | undef
     inputTokens: u.prompt_tokens,
     outputTokens: u.completion_tokens,
   };
+}
+
+// OpenRouter publishes per-token rates as decimal strings in USD (e.g.
+// "0.000003" = $3 / 1M tokens). Convert to the SDK's $/M-tokens convention
+// so the UI can render "$3.00 in / $15.00 out" without doing math at render.
+function derivePricing(p: OpenRouterModelEntry['pricing']): ModelPricing | undefined {
+  if (!p) return undefined;
+  const input = parsePerTokenRate(p.prompt);
+  const output = parsePerTokenRate(p.completion);
+  if (input === undefined && output === undefined) return undefined;
+  const pricing: ModelPricing = { currency: 'USD' };
+  if (input !== undefined) pricing.inputPerMTokens = input;
+  if (output !== undefined) pricing.outputPerMTokens = output;
+  return pricing;
+}
+
+function parsePerTokenRate(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return n * 1_000_000;
 }
 
 function deriveCapabilities(e: OpenRouterModelEntry): ModelCapabilities {
