@@ -25,10 +25,16 @@
     },
     "contributes": {
       "providers": [
-        { "id": "openrouter", "displayName": "OpenRouter" }
+        {
+          "id": "openrouter",
+          "displayName": "OpenRouter"
+        }
       ],
       "mediaProviders": [
-        { "id": "openrouter-stt", "displayName": "OpenRouter (audio model)" }
+        {
+          "id": "openrouter-stt",
+          "displayName": "OpenRouter (audio model)"
+        }
       ]
     },
     "configSchema": {
@@ -85,17 +91,10 @@
         "step": 1,
         "group": "Catalog"
       },
-      "sttModel": {
-        "type": "string",
-        "label": "STT model",
-        "description": "OpenRouter model id used for speech-to-text. Must accept audio input (e.g. openai/gpt-4o-mini-transcribe, openai/gpt-4o-audio-preview, google/gemini-2.0-flash-001). OpenRouter has no /audio/transcriptions endpoint, so this provider pipes the audio to /chat/completions as an input_audio content part.",
-        "default": "",
-        "group": "Speech-to-text"
-      },
       "sttPrompt": {
         "type": "string",
         "label": "STT prompt",
-        "description": "Optional override for the system-style instruction sent with each transcription request. Leave empty to use the built-in 'transcribe verbatim, no commentary' prompt.",
+        "description": "Optional override for the system-style instruction sent with each transcription request. Leave empty to use the built-in 'transcribe verbatim, no commentary' prompt. The STT model itself is picked from Settings → Models → Voice — not here — so the catalog of audio-capable OpenRouter models stays in one place.",
         "default": "",
         "group": "Speech-to-text"
       }
@@ -164,7 +163,12 @@
         "type": "string",
         "label": "Reasoning effort",
         "description": "For reasoning models (o3, o4-mini, claude-sonnet-4 thinking, ...). 'low' = faster/cheaper, 'high' = deeper but slower.",
-        "enum": ["", "low", "medium", "high"],
+        "enum": [
+          "",
+          "low",
+          "medium",
+          "high"
+        ],
         "default": "",
         "group": "Reasoning"
       },
@@ -172,7 +176,9 @@
         "type": "array",
         "label": "Provider order",
         "description": "Comma-pinning of upstream providers OpenRouter should try first (e.g. 'anthropic', 'together'). Empty = auto-route.",
-        "item": { "type": "string" },
+        "item": {
+          "type": "string"
+        },
         "group": "Routing"
       },
       "allow_fallbacks": {

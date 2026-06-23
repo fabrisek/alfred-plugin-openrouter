@@ -52,6 +52,10 @@ const plugin: AlfredPlugin = {
     const sttCfg = resolveSttConfig(ctx.config);
     const sttProvider = new OpenRouterSttProvider({
       config: sttCfg,
+      // Reuse the chat provider's catalog so the STT model picker pulls from
+      // the same `/models` response (and the same in-memory cache) instead of
+      // duplicating the fetch.
+      catalog: provider,
       logger: ctx.logger,
     });
     ctx.registerMediaProvider(sttProvider);

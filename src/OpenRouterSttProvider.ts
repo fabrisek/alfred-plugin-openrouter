@@ -1,4 +1,11 @@
-import type { Logger, SttOptions, SttProvider, SttResult } from '@alfred/sdk';
+import type {
+  Logger,
+  MediaModelInfo,
+  SttOptions,
+  SttProvider,
+  SttResult,
+} from '@alfred/sdk';
+import type { OpenRouterProvider } from './OpenRouterProvider.js';
 
 const noopLogger: Logger = {
   debug: () => {},
@@ -12,9 +19,13 @@ export type OpenRouterSttConfig = {
   baseUrl: string;
   appName: string;
   siteUrl: string;
-  /** OpenRouter chat-completions model id used as the transcription backend.
-   *  Must accept `input_audio` content parts (e.g. `openai/gpt-4o-mini-transcribe`,
-   *  `openai/gpt-4o-audio-preview`, `google/gemini-2.0-flash-001`). */
+  /**
+   * Optional fallback model id, used only when the host has not yet picked one
+   * in Settings → Models. The supported path is for the host to enumerate
+   * {@link OpenRouterSttProvider.listModels} and pass `opts.model` at transcribe
+   * time — this field is kept for backwards compat / installs that pre-date the
+   * media model picker.
+   */
   sttModel: string;
   /** Free-form instructions appended to the transcription prompt. */
   sttPrompt: string;
@@ -22,6 +33,10 @@ export type OpenRouterSttConfig = {
 
 export type OpenRouterSttOptions = {
   config: OpenRouterSttConfig;
+  /** Source for the model catalog. The STT provider reuses the chat provider's
+   *  `listModels()` so the cache / filter / API key configured on the LLM side
+   *  apply consistently — no second `/models` round-trip. */
+  catalog: Pick<OpenRouterProvider, 'listModels'>;
   logger?: Logger;
 };
 
@@ -53,15 +68,30 @@ export class OpenRouterSttProvider implements SttProvider {
     this.log = opts.logger ?? noopLogger;
   }
 
+  /**
+   * Subset of the chat catalog that can ingest audio — i.e. every model whose
+   * OpenRouter `input_modalities` includes `'audio'`. The host renders this in
+   * Settings → Models → Voice so users pick from a live, accurate list instead
+   * of guessing the model id by hand.
+   */
+  async listModels(): Promise<MediaModelInfo[]> {
+    const all = await this.opts.catalog.listModels();
+    return all
+      .filter((m) => m.capabilities?.inputs?.audio === true)
+      .map((m) => ({
+        id: m.id,
+        providerId: this.id,
+        displayName: m.displayName,
+        description: m.description,
+        pricing: m.pricing,
+        capabilities: m.capabilities,
+        contextWindow: m.contextWindow,
+      }));
+  }
+
   async healthCheck(): Promise<{ ok: boolean; error?: string }> {
     if (!this.opts.config.apiKey) {
       return { ok: false, error: 'No OpenRouter API key configured.' };
-    }
-    if (!this.opts.config.sttModel) {
-      return {
-        ok: false,
-        error: 'No STT model configured (Settings → Plugins → OpenRouter).',
-      };
     }
     try {
       const res = await fetch(`${this.opts.config.baseUrl}/auth/key`, {
@@ -81,10 +111,13 @@ export class OpenRouterSttProvider implements SttProvider {
     if (!this.opts.config.apiKey) {
       throw new Error('OpenRouter STT: no API key configured.');
     }
-    const model = this.opts.config.sttModel.trim();
+    // Host-resolved model wins (Settings → Models → Voice). The plugin's
+    // legacy `sttModel` config only kicks in for installs that pre-date the
+    // media model picker — kept as a fallback so we don't break those.
+    const model = (opts?.model ?? this.opts.config.sttModel ?? '').trim();
     if (!model) {
       throw new Error(
-        'OpenRouter STT: no model configured. Pick an audio-input-capable model in Settings → Plugins → OpenRouter (e.g. openai/gpt-4o-mini-transcribe, google/gemini-2.0-flash-001).',
+        'OpenRouter STT: no model selected. Pick an audio-input-capable model in Settings → Models → Voice (e.g. openai/gpt-4o-mini-transcribe, google/gemini-2.0-flash-001).',
       );
     }
     const format = audioFormatFromMime(mimeType);
