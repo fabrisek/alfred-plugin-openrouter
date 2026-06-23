@@ -29,7 +29,7 @@ Open **Settings → Plugins → OpenRouter** and set:
 | `baseUrl` | no | Defaults to `https://openrouter.ai/api/v1` |
 | `appName` | no | Sent as `X-Title` (default `Alfred`) |
 | `siteUrl` | no | Sent as `HTTP-Referer` |
-| `modelFilter` | no | Substring filter on model ids (e.g. `anthropic/`) |
+| `modelFilter` | no | Vendor dropdown — pick one (e.g. `deepseek/`) to narrow the picker, or leave blank for all vendors |
 | `freeOnly` | no | Only expose `:free` models — useful while exploring |
 | `modelsCacheMinutes` | no | Default 60min — the catalog rarely changes |
 

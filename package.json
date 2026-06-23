@@ -1,6 +1,6 @@
 {
   "name": "@alfred-plugin/openrouter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -60,8 +60,8 @@
       },
       "modelFilter": {
         "type": "string",
-        "label": "Model filter",
-        "description": "Optional substring filter applied to model ids when listing models. Leave empty to expose all ~400 OpenRouter models, or set e.g. 'anthropic/' to limit the picker to a single vendor.",
+        "label": "Model filter (vendor)",
+        "description": "Limit the model picker to a vendor. Leave empty to expose every OpenRouter model. The value is matched as a substring of the model id (e.g. 'deepseek/' keeps deepseek/* only). Vendors are not hardcoded — the live catalog from GET /models defines what's available; call the 'listVendors' action for the current set.",
         "default": "",
         "group": "Catalog"
       },

@@ -20,7 +20,7 @@ function resolveConfig(raw: Record<string, unknown>): OpenRouterConfig {
 const plugin: AlfredPlugin = {
   id: 'openrouter',
   name: 'OpenRouter',
-  version: '0.1.0',
+  version: '0.2.0',
 
   async activate(ctx: PluginContext) {
     const cfg = resolveConfig(ctx.config);
@@ -63,6 +63,29 @@ const plugin: AlfredPlugin = {
       try {
         const models = await provider.listModels();
         return { ok: true, count: models.length, models };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    });
+
+    // Vendor list derived live from the catalog — never hardcoded. The model
+    // picker / settings UI can call this to populate a vendor dropdown that
+    // reflects exactly what OpenRouter serves today (e.g. 'anthropic/',
+    // 'openai/', 'deepseek/', ...), so the list can't go stale.
+    ctx.registerAction('listVendors', async () => {
+      try {
+        const models = await provider.listModels();
+        const vendors = Array.from(
+          new Set(
+            models
+              .map((m) => {
+                const slash = m.id.indexOf('/');
+                return slash > 0 ? m.id.slice(0, slash + 1) : '';
+              })
+              .filter((v) => v.length > 0),
+          ),
+        ).sort((a, b) => a.localeCompare(b));
+        return { ok: true, count: vendors.length, vendors };
       } catch (err) {
         return { ok: false, error: (err as Error).message };
       }
