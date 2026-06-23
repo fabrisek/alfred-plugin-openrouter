@@ -93,8 +93,8 @@
       },
       "sttPrompt": {
         "type": "string",
-        "label": "STT prompt",
-        "description": "Optional override for the system-style instruction sent with each transcription request. Leave empty to use the built-in 'transcribe verbatim, no commentary' prompt. The STT model itself is picked from Settings → Models → Voice — not here — so the catalog of audio-capable OpenRouter models stays in one place.",
+        "label": "STT prompt (chat-mode only)",
+        "description": "Optional override for the prompt sent with chat-style audio models (Gemini, gpt-audio, …). Leave empty to use the built-in 'transcribe verbatim, no commentary' prompt. This setting is IGNORED when the selected model is a dedicated transcription model (Whisper, gpt-4o-transcribe, voxtral-mini-transcribe, …) — those use OpenRouter's native /audio/transcriptions endpoint which does not accept a freeform prompt. The model itself is picked from Settings → Models → Voice.",
         "default": "",
         "group": "Speech-to-text"
       }
