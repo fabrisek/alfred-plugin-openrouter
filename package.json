@@ -26,6 +26,9 @@
     "contributes": {
       "providers": [
         { "id": "openrouter", "displayName": "OpenRouter" }
+      ],
+      "mediaProviders": [
+        { "id": "openrouter-stt", "displayName": "OpenRouter (audio model)" }
       ]
     },
     "configSchema": {
@@ -81,6 +84,20 @@
         "max": 1440,
         "step": 1,
         "group": "Catalog"
+      },
+      "sttModel": {
+        "type": "string",
+        "label": "STT model",
+        "description": "OpenRouter model id used for speech-to-text. Must accept audio input (e.g. openai/gpt-4o-mini-transcribe, openai/gpt-4o-audio-preview, google/gemini-2.0-flash-001). OpenRouter has no /audio/transcriptions endpoint, so this provider pipes the audio to /chat/completions as an input_audio content part.",
+        "default": "",
+        "group": "Speech-to-text"
+      },
+      "sttPrompt": {
+        "type": "string",
+        "label": "STT prompt",
+        "description": "Optional override for the system-style instruction sent with each transcription request. Leave empty to use the built-in 'transcribe verbatim, no commentary' prompt.",
+        "default": "",
+        "group": "Speech-to-text"
       }
     },
     "modelParamsSchema": {

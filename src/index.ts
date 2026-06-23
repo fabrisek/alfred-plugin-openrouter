@@ -1,5 +1,9 @@
 import type { AlfredPlugin, PluginContext } from '@alfred/sdk';
 import { OpenRouterProvider, type OpenRouterConfig } from './OpenRouterProvider.js';
+import {
+  OpenRouterSttProvider,
+  type OpenRouterSttConfig,
+} from './OpenRouterSttProvider.js';
 
 function resolveConfig(raw: Record<string, unknown>): OpenRouterConfig {
   const baseUrl = String(raw.baseUrl ?? '').trim() || 'https://openrouter.ai/api/v1';
@@ -14,6 +18,18 @@ function resolveConfig(raw: Record<string, unknown>): OpenRouterConfig {
       typeof raw.modelsCacheMinutes === 'number' && raw.modelsCacheMinutes >= 0
         ? raw.modelsCacheMinutes
         : 60,
+  };
+}
+
+function resolveSttConfig(raw: Record<string, unknown>): OpenRouterSttConfig {
+  const baseUrl = String(raw.baseUrl ?? '').trim() || 'https://openrouter.ai/api/v1';
+  return {
+    apiKey: String(raw.apiKey ?? '').trim(),
+    baseUrl: baseUrl.replace(/\/+$/, ''),
+    appName: String(raw.appName ?? 'Alfred'),
+    siteUrl: String(raw.siteUrl ?? ''),
+    sttModel: String(raw.sttModel ?? '').trim(),
+    sttPrompt: String(raw.sttPrompt ?? ''),
   };
 }
 
@@ -32,6 +48,13 @@ const plugin: AlfredPlugin = {
 
     const provider = new OpenRouterProvider({ config: cfg, logger: ctx.logger });
     ctx.registerProvider(provider);
+
+    const sttCfg = resolveSttConfig(ctx.config);
+    const sttProvider = new OpenRouterSttProvider({
+      config: sttCfg,
+      logger: ctx.logger,
+    });
+    ctx.registerMediaProvider(sttProvider);
 
     ctx.registerAction('testConnection', async () => {
       if (!cfg.apiKey) {
