@@ -195,28 +195,24 @@ export class OpenRouterSttProvider implements SttProvider {
     model: string,
     opts?: SttOptions,
   ): Promise<SttResult> {
-    const ext = audioExtensionFromMime(mimeType);
-    const form = new FormData();
-    // Some runtimes' FormData rejects raw Uint8Array — wrap in Blob so the
-    // multipart writer always gets a known body type with the right MIME.
-    // Copy the bytes into a dedicated ArrayBuffer to satisfy TS's BlobPart
-    // type (a Uint8Array backed by ArrayBufferLike — which could be a shared
-    // buffer — is not assignable to BlobPart under strict lib types).
-    const ab = audio.buffer.slice(
-      audio.byteOffset,
-      audio.byteOffset + audio.byteLength,
-    ) as ArrayBuffer;
-    const blob = new Blob([ab], { type: mimeType || 'application/octet-stream' });
-    form.append('file', blob, `audio.${ext}`);
-    form.append('model', model);
+    // OpenRouter's /audio/transcriptions endpoint expects a JSON body with
+    // the audio inlined as base64 under `input_audio` — it does NOT accept
+    // OpenAI's multipart/form-data contract and 400s with
+    // "invalid content-type: multipart/form-data; …" when given one.
+    // See https://github.com/OpenRouterTeam/skills/tree/main/skills/openrouter-stt
+    const format = audioFormatFromMime(mimeType);
+    const body: Record<string, unknown> = {
+      model,
+      input_audio: { data: bytesToBase64(audio), format },
+    };
     if (opts?.language && opts.language !== 'auto') {
-      form.append('language', opts.language);
+      body.language = opts.language;
     }
-    form.append('response_format', 'json');
 
     this.log.info('stt transcribe (audio endpoint)', {
       model,
       mimeType,
+      format,
       bytes: audio.byteLength,
       language: opts?.language,
     });
@@ -224,12 +220,13 @@ export class OpenRouterSttProvider implements SttProvider {
     const startedAt = Date.now();
     let res: Response;
     try {
-      // Don't set Content-Type — fetch must auto-generate the multipart
-      // boundary, otherwise OpenRouter rejects the body with "missing boundary".
       res = await fetch(`${this.opts.config.baseUrl}/audio/transcriptions`, {
         method: 'POST',
-        headers: this.authHeaders(),
-        body: form,
+        headers: {
+          ...this.authHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
         signal: opts?.signal,
       });
     } catch (err) {
@@ -415,21 +412,6 @@ function audioFormatFromMime(mimeType: string): string {
   if (m.includes('webm')) return 'webm';
   if (m.includes('ogg')) return 'ogg';
   if (m.includes('m4a') || m.includes('mp4')) return 'm4a';
-  if (m.includes('flac')) return 'flac';
-  return 'wav';
-}
-
-// File extension hint for the multipart upload's filename. Whisper-class
-// backends inspect the extension for container sniffing when the Content-Type
-// is generic, so giving them a sensible name improves robustness.
-function audioExtensionFromMime(mimeType: string): string {
-  const m = mimeType.toLowerCase();
-  if (m.includes('wav')) return 'wav';
-  if (m.includes('mp3') || m.includes('mpeg')) return 'mp3';
-  if (m.includes('webm')) return 'webm';
-  if (m.includes('ogg')) return 'ogg';
-  if (m.includes('m4a')) return 'm4a';
-  if (m.includes('mp4')) return 'mp4';
   if (m.includes('flac')) return 'flac';
   return 'wav';
 }
