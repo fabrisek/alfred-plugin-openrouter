@@ -69,7 +69,7 @@ type OpenAITranscriptionResponse = {
 const DEFAULT_PROMPT =
   'Transcribe the user audio verbatim. Reply ONLY with the transcript text — no preface, no commentary, no quotes.';
 
-const TRANSCRIPTION_TTL_MS = 60 * 60 * 1000;
+const CATALOG_TTL_MS = 60 * 60 * 1000;
 
 /**
  * Speech-to-text backend exposing TWO categories of OpenRouter models:
@@ -99,11 +99,13 @@ export class OpenRouterSttProvider implements SttProvider {
   readonly kind = 'stt' as const;
 
   private readonly log: Logger;
-  // Set of ids returned by /models?output_modalities=transcription. Populated
-  // by listModels() and refreshed lazily before transcribe() so we always know
-  // which endpoint to hit for a given model.
-  private transcriptionIds = new Set<string>();
-  private transcriptionFetchedAt = 0;
+  // Dispatch map populated by listModels(): for every model that appears in
+  // the catalog the user can pick from, we record which HTTP contract it
+  // speaks. transcribe() reads this — never guessing from the id — so a model
+  // we don't recognise hard-fails with a clear message instead of silently
+  // hitting the wrong endpoint and surfacing an opaque OpenRouter 500.
+  private endpointByModel = new Map<string, 'audio' | 'chat'>();
+  private catalogFetchedAt = 0;
 
   constructor(private readonly opts: OpenRouterSttOptions) {
     this.log = opts.logger ?? noopLogger;
@@ -124,9 +126,10 @@ export class OpenRouterSttProvider implements SttProvider {
         return [];
       }),
     ]);
+    const transcriptionIds = new Set(transcription.map((m) => m.id));
     const chatAudio: MediaModelInfo[] = chat
       .filter(
-        (m) => m.capabilities?.inputs?.audio === true && !this.transcriptionIds.has(m.id),
+        (m) => m.capabilities?.inputs?.audio === true && !transcriptionIds.has(m.id),
       )
       .map((m) => ({
         id: m.id,
@@ -137,6 +140,13 @@ export class OpenRouterSttProvider implements SttProvider {
         capabilities: m.capabilities,
         contextWindow: m.contextWindow,
       }));
+    // Rebuild dispatch map atomically with the catalog so transcribe() never
+    // routes a model the user just picked through stale state.
+    const next = new Map<string, 'audio' | 'chat'>();
+    for (const m of transcription) next.set(m.id, 'audio');
+    for (const m of chatAudio) next.set(m.id, 'chat');
+    this.endpointByModel = next;
+    this.catalogFetchedAt = Date.now();
     return [...transcription, ...chatAudio];
   }
 
@@ -168,11 +178,15 @@ export class OpenRouterSttProvider implements SttProvider {
         'OpenRouter STT: no model selected. Pick a transcription model in Settings → Models → Voice (e.g. openai/whisper-1, mistralai/voxtral-mini-transcribe, openai/gpt-4o-mini-transcribe).',
       );
     }
-    const ids = await this.ensureTranscriptionIds();
-    if (ids.has(model)) {
-      return this.transcribeViaAudioEndpoint(audio, mimeType, model, opts);
+    const endpoint = await this.ensureEndpoint(model);
+    if (!endpoint) {
+      throw new Error(
+        `OpenRouter STT: model '${model}' is not in the catalog of transcription or audio-input chat models. Pick a different model in Settings → Models → Voice, or check that your OpenRouter key has access to it.`,
+      );
     }
-    return this.transcribeViaChatCompletions(audio, mimeType, model, opts);
+    return endpoint === 'audio'
+      ? this.transcribeViaAudioEndpoint(audio, mimeType, model, opts)
+      : this.transcribeViaChatCompletions(audio, mimeType, model, opts);
   }
 
   private async transcribeViaAudioEndpoint(
@@ -332,8 +346,6 @@ export class OpenRouterSttProvider implements SttProvider {
       }
       const data = (await res.json()) as OpenRouterModelsResponse;
       const entries = data.data ?? [];
-      this.transcriptionIds = new Set(entries.map((e) => e.id).filter((id): id is string => !!id));
-      this.transcriptionFetchedAt = Date.now();
       return entries.map((e) => ({
         id: e.id,
         providerId: this.id,
@@ -360,19 +372,26 @@ export class OpenRouterSttProvider implements SttProvider {
   }
 
   /**
-   * Warm-cache wrapper used by `transcribe()` to know which HTTP path to take.
-   * If the cache is stale or empty we refetch — the cost is one cheap GET and
-   * it only happens at most once per TTL window.
+   * Resolve the HTTP endpoint to use for `model`, refreshing the catalog if
+   * stale or if the model isn't known yet. Returns `undefined` when the model
+   * is genuinely absent from OpenRouter's catalog — `transcribe()` turns that
+   * into a clear user-facing error rather than silently picking the wrong
+   * endpoint and letting OpenRouter 500.
    */
-  private async ensureTranscriptionIds(): Promise<Set<string>> {
-    if (
-      this.transcriptionIds.size > 0 &&
-      Date.now() - this.transcriptionFetchedAt < TRANSCRIPTION_TTL_MS
-    ) {
-      return this.transcriptionIds;
+  private async ensureEndpoint(model: string): Promise<'audio' | 'chat' | undefined> {
+    const fresh =
+      this.endpointByModel.size > 0 &&
+      Date.now() - this.catalogFetchedAt < CATALOG_TTL_MS;
+    if (!fresh) {
+      await this.listModels();
+      return this.endpointByModel.get(model);
     }
-    await this.fetchTranscriptionModels();
-    return this.transcriptionIds;
+    const cached = this.endpointByModel.get(model);
+    if (cached) return cached;
+    // Catalog was fresh but missing the model — maybe added since the last
+    // refresh. Force one re-fetch before giving up.
+    await this.listModels();
+    return this.endpointByModel.get(model);
   }
 
   private authHeaders(): Record<string, string> {
