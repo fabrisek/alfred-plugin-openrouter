@@ -4,6 +4,10 @@ import {
   OpenRouterSttProvider,
   type OpenRouterSttConfig,
 } from './OpenRouterSttProvider.js';
+import {
+  OpenRouterImageProvider,
+  type OpenRouterImageConfig,
+} from './OpenRouterImageProvider.js';
 
 function resolveConfig(raw: Record<string, unknown>): OpenRouterConfig {
   const baseUrl = String(raw.baseUrl ?? '').trim() || 'https://openrouter.ai/api/v1';
@@ -33,10 +37,21 @@ function resolveSttConfig(raw: Record<string, unknown>): OpenRouterSttConfig {
   };
 }
 
+function resolveImageConfig(raw: Record<string, unknown>): OpenRouterImageConfig {
+  const baseUrl = String(raw.baseUrl ?? '').trim() || 'https://openrouter.ai/api/v1';
+  return {
+    apiKey: String(raw.apiKey ?? '').trim(),
+    baseUrl: baseUrl.replace(/\/+$/, ''),
+    appName: String(raw.appName ?? 'Alfred'),
+    siteUrl: String(raw.siteUrl ?? ''),
+    imageModel: String(raw.imageModel ?? '').trim(),
+  };
+}
+
 const plugin: AlfredPlugin = {
   id: 'openrouter',
   name: 'OpenRouter',
-  version: '0.2.0',
+  version: '0.3.0',
 
   async activate(ctx: PluginContext) {
     const cfg = resolveConfig(ctx.config);
@@ -59,6 +74,13 @@ const plugin: AlfredPlugin = {
       logger: ctx.logger,
     });
     ctx.registerMediaProvider(sttProvider);
+
+    const imageCfg = resolveImageConfig(ctx.config);
+    const imageProvider = new OpenRouterImageProvider({
+      config: imageCfg,
+      logger: ctx.logger,
+    });
+    ctx.registerMediaProvider(imageProvider);
 
     ctx.registerAction('testConnection', async () => {
       if (!cfg.apiKey) {

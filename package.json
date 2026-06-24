@@ -1,6 +1,6 @@
 {
   "name": "@alfred-plugin/openrouter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -34,6 +34,10 @@
         {
           "id": "openrouter-stt",
           "displayName": "OpenRouter (audio model)"
+        },
+        {
+          "id": "openrouter-image",
+          "displayName": "OpenRouter (image generation)"
         }
       ]
     },

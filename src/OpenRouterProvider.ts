@@ -5,6 +5,7 @@ import type {
   LLMProvider,
   Logger,
   Message,
+  MessageAttachment,
   ModelCapabilities,
   ModelDetails,
   ModelInfo,
@@ -475,9 +476,102 @@ function toOpenAITool(tool: ToolSchema): Record<string, unknown> {
   };
 }
 
+// OpenRouter follows the OpenAI multimodal content-part envelope:
+//   - text                 → { type: 'text', text }
+//   - images               → { type: 'image_url', image_url: { url: dataUrl } }
+//   - audio (chat models)  → { type: 'input_audio', input_audio: { data, format } }
+//   - PDF / video / docs   → { type: 'file', file: { filename, file_data: dataUrl } }
+// See https://openrouter.ai/docs/features/multimodal — the `file` envelope is
+// the catch-all upstream models (Gemini, Claude, gpt-4o, …) use for non-image,
+// non-audio binaries; routing video through it is best-effort for the Gemini
+// family. Non-supporting models ignore the part, and the host already inlines
+// a text placeholder via `inlineAttachmentsForProvider` so the model still
+// knows a video was attached.
 type OpenAIContentPart =
   | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string } };
+  | { type: 'image_url'; image_url: { url: string } }
+  | { type: 'input_audio'; input_audio: { data: string; format: string } }
+  | { type: 'file'; file: { filename: string; file_data: string } };
+
+function attachmentToContentPart(att: MessageAttachment): OpenAIContentPart | null {
+  const mime = (att.mimeType || '').toLowerCase();
+  if (!att.data) return null;
+  if (mime.startsWith('image/')) {
+    return {
+      type: 'image_url',
+      image_url: { url: `data:${mime};base64,${att.data}` },
+    };
+  }
+  if (mime.startsWith('audio/')) {
+    return {
+      type: 'input_audio',
+      input_audio: { data: att.data, format: audioFormatFromMime(mime) },
+    };
+  }
+  if (mime === 'application/pdf') {
+    return {
+      type: 'file',
+      file: {
+        filename: att.name || 'document.pdf',
+        file_data: `data:application/pdf;base64,${att.data}`,
+      },
+    };
+  }
+  if (mime.startsWith('video/')) {
+    return {
+      type: 'file',
+      file: {
+        filename: att.name || 'video',
+        file_data: `data:${mime};base64,${att.data}`,
+      },
+    };
+  }
+  // Textual + unknown-binary attachments are already inlined into the user
+  // message body by the host's `inlineAttachmentsForProvider` — duplicating
+  // them as a `file` part would double the byte count and confuse models
+  // that don't recognise the envelope.
+  return null;
+}
+
+function audioFormatFromMime(mime: string): string {
+  if (mime.includes('wav')) return 'wav';
+  if (mime.includes('mp3') || mime.includes('mpeg')) return 'mp3';
+  if (mime.includes('webm')) return 'webm';
+  if (mime.includes('ogg')) return 'ogg';
+  if (mime.includes('m4a') || mime.includes('mp4')) return 'm4a';
+  if (mime.includes('flac')) return 'flac';
+  return 'wav';
+}
+
+function buildMultimodalContent(msg: Message): string | OpenAIContentPart[] {
+  const text = typeof msg.content === 'string' ? msg.content : '';
+  const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
+  if (attachments.length > 0) {
+    const parts: OpenAIContentPart[] = [];
+    if (text) parts.push({ type: 'text', text });
+    for (const att of attachments) {
+      const part = attachmentToContentPart(att);
+      if (part) parts.push(part);
+    }
+    if (parts.length > 0) return parts;
+  }
+  // Legacy fallback: messages stored before the `attachments` field landed
+  // only carry a bare `images` array of base64 strings with no mime info.
+  // PNG is the safe default — most upstream models sniff the actual format
+  // from the magic bytes regardless of the data-URL hint.
+  if (Array.isArray(msg.images) && msg.images.length > 0) {
+    const parts: OpenAIContentPart[] = [];
+    if (text) parts.push({ type: 'text', text });
+    for (const b64 of msg.images) {
+      parts.push({
+        type: 'image_url',
+        image_url: { url: `data:image/png;base64,${b64}` },
+      });
+    }
+    return parts;
+  }
+  return text;
+}
 
 function toOpenAIMessage(msg: Message): Record<string, unknown> {
   const out: Record<string, unknown> = { role: msg.role };
@@ -499,34 +593,10 @@ function toOpenAIMessage(msg: Message): Record<string, unknown> {
         },
       }));
     }
-    if (msg.images && msg.images.length > 0) {
-      const parts: OpenAIContentPart[] = [];
-      if (msg.content) parts.push({ type: 'text', text: msg.content });
-      for (const b64 of msg.images) {
-        parts.push({
-          type: 'image_url',
-          image_url: { url: `data:image/png;base64,${b64}` },
-        });
-      }
-      out.content = parts;
-    } else {
-      out.content = msg.content ?? '';
-    }
+    out.content = buildMultimodalContent(msg);
     return out;
   }
-  if (msg.images && msg.images.length > 0) {
-    const parts: OpenAIContentPart[] = [];
-    if (msg.content) parts.push({ type: 'text', text: msg.content });
-    for (const b64 of msg.images) {
-      parts.push({
-        type: 'image_url',
-        image_url: { url: `data:image/png;base64,${b64}` },
-      });
-    }
-    out.content = parts;
-    return out;
-  }
-  out.content = msg.content;
+  out.content = buildMultimodalContent(msg);
   return out;
 }
 
@@ -598,6 +668,11 @@ function deriveCapabilities(e: OpenRouterModelEntry): ModelCapabilities {
   const supported = e.supported_parameters ?? [];
   const hasVision = inputs.includes('image');
   const hasAudio = inputs.includes('audio');
+  const hasVideo = inputs.includes('video');
+  // OpenRouter labels PDF / document support as `file` on the architecture
+  // payload — surface it so the host's attachment router can show "PDF
+  // viewable" badges in the model picker.
+  const hasFiles = inputs.includes('file');
   const hasTools = supported.includes('tools') || supported.includes('tool_choice');
   const hasThinking =
     supported.includes('reasoning') || supported.includes('include_reasoning');
@@ -608,6 +683,8 @@ function deriveCapabilities(e: OpenRouterModelEntry): ModelCapabilities {
     inputs: {
       image: hasVision || undefined,
       audio: hasAudio || undefined,
+      video: hasVideo || undefined,
+      files: hasFiles || undefined,
     },
   };
 }
